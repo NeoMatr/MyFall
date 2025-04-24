@@ -86,6 +86,33 @@ function generateRoomCode() {
     return result;
 }
 
+// Improved error handling and connection stability
+function setupConnectionHandlers(conn) {
+    conn.on('open', () => {
+        console.log('Connected to:', conn.peer);
+        hideStatus();
+    });
+
+    conn.on('data', (data) => {
+        console.log('Received data:', data);
+        handleGameData(data, conn);
+    });
+
+    conn.on('close', () => {
+        console.log('Connection closed with peer:', conn.peer);
+        showStatus('Disconnected from host', true);
+        setTimeout(() => {
+            showSection('lobby');
+        }, 2000);
+    });
+
+    conn.on('error', (err) => {
+        console.error('Connection error:', err);
+        showStatus('Connection error: ' + err.message, true);
+        showSection('lobby');
+    });
+}
+
 // Create a new game as host
 elements.createGame.addEventListener('click', () => {
     if (!elements.playerName.value) {
@@ -93,30 +120,18 @@ elements.createGame.addEventListener('click', () => {
         return;
     }
     
-    // Clean up any existing connection
     cleanupPeer();
-    
-    // Show connecting status
     showStatus('Creating game room...');
-    
-    // Generate a room code
     const roomCode = generateRoomCode();
     gameState.roomCode = roomCode;
-    
-    // Create peer with room code as ID
-    peer = new Peer(roomCode, {
-        debug: 2
-    });
+    peer = new Peer(roomCode, { debug: 2 });
     
     peer.on('open', (id) => {
         console.log('Room created with ID:', id);
         gameState.isHost = true;
         elements.roomCode.textContent = id;
-        
-        // Add host to players list
         gameState.players = {};
         gameState.players[id] = elements.playerName.value;
-        
         updatePlayersList();
         showSection('gameRoom');
         elements.startGame.classList.remove('hidden');
@@ -130,11 +145,7 @@ elements.createGame.addEventListener('click', () => {
     
     peer.on('error', (err) => {
         console.error('PeerJS error:', err);
-        if (err.type === 'unavailable-id') {
-            showStatus('Room code already in use. Try again.', true);
-        } else {
-            showStatus('Connection error: ' + err.type, true);
-        }
+        showStatus('Connection error: ' + err.message, true);
         cleanupPeer();
         showSection('lobby');
     });
@@ -152,77 +163,25 @@ elements.joinGame.addEventListener('click', () => {
         return;
     }
     
-    // Clean up any existing connection
     cleanupPeer();
-    
-    // Show connecting status
     showStatus('Connecting to game...');
-    
-    // Format room code
     const roomCode = elements.joinCode.value.trim().toUpperCase();
     gameState.roomCode = roomCode;
-    
-    // Create a random peer ID for this player
-    peer = new Peer({
-        debug: 2
-    });
+    peer = new Peer({ debug: 2 });
     
     peer.on('open', (myId) => {
         console.log('Connected with my ID:', myId);
-        
-        // Connect to the host's room
         const conn = peer.connect(roomCode, {
             reliable: true,
-            metadata: {
-                name: elements.playerName.value
-            }
+            metadata: { name: elements.playerName.value }
         });
-        
-        conn.on('open', () => {
-            console.log('Connected to host:', roomCode);
-            
-            // Send player info to host
-            conn.send({
-                type: 'join',
-                name: elements.playerName.value,
-                id: myId
-            });
-            
-            elements.roomCode.textContent = roomCode;
-            showSection('gameRoom');
-            hideStatus();
-        });
-        
-        conn.on('data', (data) => {
-            console.log('Received data:', data);
-            handleGameData(data, conn);
-        });
-        
-        conn.on('close', () => {
-            console.log('Disconnected from host');
-            showStatus('Disconnected from host', true);
-            setTimeout(() => {
-                showSection('lobby');
-            }, 2000);
-        });
-        
-        conn.on('error', (err) => {
-            console.error('Connection error:', err);
-            showStatus('Connection error', true);
-            showSection('lobby');
-        });
-        
-        // Store connection
+        setupConnectionHandlers(conn);
         connections.push(conn);
     });
     
     peer.on('error', (err) => {
         console.error('PeerJS error:', err);
-        if (err.type === 'peer-unavailable') {
-            showStatus('Game room not found', true);
-        } else {
-            showStatus('Connection error: ' + err.type, true);
-        }
+        showStatus('Connection error: ' + err.message, true);
         cleanupPeer();
         showSection('lobby');
     });
@@ -230,34 +189,8 @@ elements.joinGame.addEventListener('click', () => {
 
 // Handle incoming player connection (host only)
 function handlePlayerConnection(conn) {
-    conn.on('open', () => {
-        console.log('Player connected:', conn.peer);
-        
-        // Save connection
-        connections.push(conn);
-        
-        // Set up data handler
-        conn.on('data', (data) => {
-            console.log('Received data from player:', data);
-            handleGameData(data, conn);
-        });
-        
-        // Handle disconnection
-        conn.on('close', () => {
-            console.log('Player disconnected:', conn.peer);
-            
-            // Remove from players and connections
-            if (gameState.players[conn.metadata?.id || conn.peer]) {
-                delete gameState.players[conn.metadata?.id || conn.peer];
-            }
-            
-            connections = connections.filter(c => c.peer !== conn.peer);
-            
-            // Update all clients
-            updatePlayersList();
-            broadcastGameState();
-        });
-    });
+    setupConnectionHandlers(conn);
+    connections.push(conn);
 }
 
 // Handle received game data
@@ -505,12 +438,10 @@ function startTimer() {
     window.gameTimer = setInterval(updateTimer, 1000);
 }
 
-// Initialize when page loads
+// Focus on the name input field when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    // Create the status message element
     createStatusMessage();
     hideStatus();
-    
-    // Show lobby first
     showSection('lobby');
+    elements.playerName.focus();
 }); 
