@@ -34,19 +34,35 @@ const sections = {
 
 // Initialize PeerJS
 function initializePeer() {
-    peer = new Peer(generateId());
-    peer.on('open', (id) => {
-        console.log('My peer ID is: ' + id);
+    if (peer) {
+        peer.destroy();
+    }
+    
+    peer = new Peer(generateId(), {
+        debug: 2
     });
 
-    peer.on('connection', (conn) => {
-        handleConnection(conn);
+    peer.on('open', (id) => {
+        console.log('Connected with ID:', id);
+    });
+
+    peer.on('error', (error) => {
+        console.error('PeerJS error:', error);
+        alert('Connection error: ' + error.type);
+        showSection('lobby');
+    });
+
+    peer.on('connection', handleConnection);
+    
+    peer.on('disconnected', () => {
+        console.log('Connection lost. Attempting to reconnect...');
+        peer.reconnect();
     });
 }
 
 // Generate random ID
 function generateId() {
-    return Math.random().toString(36).substr(2, 6);
+    return Math.random().toString(36).substr(2, 6).toUpperCase();
 }
 
 // Create game
@@ -56,13 +72,16 @@ elements.createGame.addEventListener('click', () => {
         return;
     }
 
-    gameState.isHost = true;
     initializePeer();
-    elements.roomCode.textContent = peer.id;
-    gameState.players[peer.id] = elements.playerName.value;
-    updatePlayersList();
-    showSection('gameRoom');
-    elements.startGame.classList.remove('hidden');
+    
+    peer.on('open', (id) => {
+        gameState.isHost = true;
+        elements.roomCode.textContent = id;
+        gameState.players[id] = elements.playerName.value;
+        updatePlayersList();
+        showSection('gameRoom');
+        elements.startGame.classList.remove('hidden');
+    });
 });
 
 // Join game
@@ -73,26 +92,73 @@ elements.joinGame.addEventListener('click', () => {
     }
 
     initializePeer();
-    const conn = peer.connect(elements.joinCode.value);
-    handleConnection(conn);
-    showSection('gameRoom');
+    
+    peer.on('open', () => {
+        const conn = peer.connect(elements.joinCode.value.trim().toUpperCase(), {
+            reliable: true
+        });
+
+        conn.on('error', (error) => {
+            console.error('Connection error:', error);
+            alert('Failed to connect to game room');
+            showSection('lobby');
+        });
+
+        handleConnection(conn);
+        showSection('gameRoom');
+    });
 });
 
 // Handle connection
 function handleConnection(conn) {
-    connections.push(conn);
-    
-    conn.on('open', () => {
-        conn.send({
-            type: 'join',
-            name: elements.playerName.value,
-            id: peer.id
-        });
-    });
+    // Ensure connection isn't already in the list
+    if (!connections.some(c => c.peer === conn.peer)) {
+        connections.push(conn);
+        
+        conn.on('open', () => {
+            console.log('Connection established with peer:', conn.peer);
+            
+            // Send join message
+            conn.send({
+                type: 'join',
+                name: elements.playerName.value,
+                id: peer.id
+            });
 
-    conn.on('data', (data) => {
-        handleGameData(data, conn);
-    });
+            // If we're the host, send current game state
+            if (gameState.isHost) {
+                conn.send({
+                    type: 'gameState',
+                    state: gameState
+                });
+            }
+        });
+
+        conn.on('data', (data) => {
+            console.log('Received data:', data);
+            handleGameData(data, conn);
+        });
+
+        conn.on('close', () => {
+            console.log('Connection closed with peer:', conn.peer);
+            // Remove player from game state
+            delete gameState.players[conn.peer];
+            // Remove connection from connections array
+            connections = connections.filter(c => c.peer !== conn.peer);
+            updatePlayersList();
+            
+            if (gameState.isHost) {
+                broadcastGameState();
+            }
+        });
+
+        conn.on('error', (error) => {
+            console.error('Connection error with peer:', conn.peer, error);
+            connections = connections.filter(c => c.peer !== conn.peer);
+            delete gameState.players[conn.peer];
+            updatePlayersList();
+        });
+    }
 }
 
 // Handle game data
@@ -121,11 +187,19 @@ function handleGameData(data, conn) {
 
 // Broadcast game state
 function broadcastGameState() {
+    const state = {
+        type: 'gameState',
+        state: gameState
+    };
+    
     connections.forEach(conn => {
-        conn.send({
-            type: 'gameState',
-            state: gameState
-        });
+        if (conn.open) {
+            try {
+                conn.send(state);
+            } catch (error) {
+                console.error('Error sending state to peer:', conn.peer, error);
+            }
+        }
     });
 }
 
@@ -136,6 +210,10 @@ function updatePlayersList() {
         const playerDiv = document.createElement('div');
         playerDiv.className = 'player-card';
         playerDiv.textContent = name;
+        if (id === peer.id) {
+            playerDiv.textContent += ' (You)';
+            playerDiv.style.borderColor = '#1d9bf0';
+        }
         elements.playersList.appendChild(playerDiv);
     });
 }
@@ -182,21 +260,26 @@ elements.startGame.addEventListener('click', () => {
         }
     });
 
-    const gameState = {
+    const newGameState = {
         location,
         roles,
         gameStarted: true
     };
 
+    // Update local game state
+    gameState = {...gameState, ...newGameState};
+
     // Broadcast game start
     connections.forEach(conn => {
-        conn.send({
-            type: 'startGame',
-            gameState
-        });
+        if (conn.open) {
+            conn.send({
+                type: 'startGame',
+                gameState: newGameState
+            });
+        }
     });
 
-    startGame(gameState);
+    startGame();
 });
 
 // Start game
@@ -242,6 +325,5 @@ function startTimer() {
 
 // Initialize event listeners
 document.addEventListener('DOMContentLoaded', () => {
-    // Show initial lobby section
     showSection('lobby');
 }); 
