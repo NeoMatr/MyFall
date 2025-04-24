@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpyFall Alternative</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div id="lobby" class="section">
+            <h1>SpyFall Alternative</h1>
+            <div class="create-game">
+                <input type="text" id="playerName" placeholder="Enter your name">
+                <button id="createGame">Create Game</button>
+                <input type="text" id="joinCode" placeholder="Enter game code">
+                <button id="joinGame">Join Game</button>
+            </div>
+        </div>
+
+        <div id="gameRoom" class="section hidden">
+            <div class="game-info">
+                <h2>Game Room</h2>
+                <p>Room Code: <span id="roomCode"></span></p>
+                <div id="playersList"></div>
+                <button id="startGame" class="hidden">Start Game</button>
+            </div>
+        </div>
+
+        <div id="gamePlay" class="section hidden">
+            <div class="game-content">
+                <h2>Current Location: <span id="location"></span></h2>
+                <p>Your Role: <span id="role"></span></p>
+                <div id="timer">Time Remaining: <span id="timeLeft">8:00</span></div>
+                <div id="locationsList" class="locations-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="game.js"></script>
+    <script src="locations.js"></script>
+</body>
+</html> 
